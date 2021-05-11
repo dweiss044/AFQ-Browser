@@ -29,6 +29,29 @@ MNI_AFF = np.array([[1., 0., 0., -98.],
                     [0., 0., 1., -72.],
                     [0., 0., 0., 1.]])
 
+BUNDLE_MAT_2_PYTHON = {'Right Corticospinal': 'CST_R', 'Left Corticospinal': 'CST_L',
+                        'RightCorticospinal': 'CST_R', 'LeftCorticospinal': 'CST_L',
+                        'Right Uncinate': 'UNC_R', 'Left Uncinate': 'UNC_L',
+                        'RightUncinate': 'UNC_R', 'LeftUncinate': 'UNC_L',
+                        'Left IFOF': 'IFO_L', 'Right IFOF': 'IFO_R',
+                        'LeftIFOF': 'IFO_L', 'RightIFOF': 'IFO_R',
+                        'Right Arcuate': 'ARC_R', 'Left Arcuate': 'ARC_L',
+                        'RightArcuate': 'ARC_R', 'LeftArcuate': 'ARC_L',
+                        'Right Thalamic Radiation': 'ATR_R', 'Left Thalamic Radiation': 'ATR_L',
+                        'RightThalamicRadiation': 'ATR_R', 'LeftThalamicRadiation': 'ATR_L',
+                        'Right Cingulum Cingulate': 'CGC_R', 'Left Cingulum Cingulate': 'CGC_L',
+                        'RightCingulumCingulate': 'CGC_R', 'LeftCingulumCingulate': 'CGC_L',
+                        'Right Cingulum Hippocampus': 'HCC_R',
+                        'Left Cingulum Hippocampus': 'HCC_L',
+                        'RightCingulumHippocampus': 'HCC_R',
+                        'LeftCingulumHippocampus': 'HCC_L',
+                        'Callosum Forceps Major': 'FP', 'Callosum Forceps Minor': 'FA',
+                        'CallosumForcepsMajor': 'FP', 'CallosumForcepsMinor': 'FA',
+                        'Right ILF': 'ILF_R', 'Left ILF': 'ILF_L',
+                        'RightILF': 'ILF_R', 'LeftILF': 'ILF_L',
+                        'Right SLF': 'SLF_R', 'Left SLF': 'SLF_L',
+                        'RightSLF': 'SLF_R', 'LeftSLF': 'SLF_L'}
+
 
 def _extract_params(afq):
     """
@@ -344,6 +367,71 @@ def afq_mat2tables(mat_file_name, subject_ids=None, stats=None,
 
     return nodes_fname, meta_fname, params_fname
 
+def afq_pyafq2tables(profiles_csv, subject_ids=None, stats=None, 
+                     metadata=None, out_path=None):
+    """
+    Create nodes table, subjects table and params dict from AFQ .mat file.
+
+    Parameters
+    ----------
+    mat_file_name : str
+        Full path to an AFQ-processed mat-file
+
+    subject_ids : list, optional
+        Identifiers for the subjects.
+        Default: ['subject_001', 'subject_002,' ...]
+
+    stats : list, optional
+        List of keys for statistics to pull from the AFQ data.
+        Default: pull out all of the statistics that are in the mat file.
+
+    out_path : str, optional
+        Full path for the CSV/JSON files to be saved as output. Default: pwd.
+
+    metadata : str, optional
+        Full path to a file with user-supplied metadata. This has to be a csv
+        file with column headers in the first row, including a column named
+        "subjectID". For an example, see the 'data/subjects.csv' that comes
+        with the software. Defaults to use the metadata stored in the afq
+        mat file. If no metadata provided and there is no meadata in the afq
+        mat file, create a minimal metadata table.
+
+    Returns
+    -------
+    tuple: paths to the files that get generated: (nodes, subjects)
+    """
+    profiles = pd.read_csv(profiles_csv)
+
+    columns = ['subjectID', 'tractID', 'nodeID']
+    # Get available statistics from profiles_csv
+    if stats is None:
+        stats = [x for x in profiles.columns if 'dti' in x or 'dki' in x]
+    columns += stats
+
+    df = pd.DataFrame(columns=columns)
+    for column in columns:
+        df[column] = profiles[column]
+        
+    for k, v in BUNDLE_MAT_2_PYTHON.items():
+        df = df.replace(v, k)
+
+    # Set output path from the input kwarg:
+    if out_path is None:
+        out_path = '.'
+
+    nodes_fname = op.join(out_path, 'nodes.csv')
+    df.to_csv(nodes_fname, index=False)
+    meta_fname = op.join(out_path, 'subjects.csv')
+    if metadata is None:
+        if subject_ids is not None:
+            _create_metadata(subject_ids, meta_fname)
+        else:
+            _create_metadata(pd.unique(profiles['subjectID']), meta_fname)
+    else:
+        shutil.copy(metadata, meta_fname)
+    
+
+    return nodes_fname, meta_fname
 
 def copy_and_overwrite(from_path, to_path):
     """Helper function: copies and overwrites."""
@@ -491,13 +579,16 @@ def assemble(source, target=None, metadata=None,
         # Assume we got a TRACULA stats path:
         nodes_fname, meta_fname, streamlines_fname, params_fname =\
             tracula2nodes(source, out_path=out_path, metadata=metadata)
-
     else:
-        # We have an AFQ-generated mat-file on our hands:
-        nodes_fname, meta_fname, params_fname = afq_mat2tables(
-            source,
-            out_path=out_path)
-
+        if op.splitext(source)[1] == '.csv':
+            # We are using a pyAFQ tract_profiles.csv
+            nodes_fname, meta_fname = afq_pyafq2tables(source, metadata=metadata,
+                                                    out_path=out_path)
+        else:
+            # We have an AFQ-generated mat-file on our hands:
+            nodes_fname, meta_fname, params_fname = afq_mat2tables(
+                source,
+                out_path=out_path)
 
 def run(target=None, port=8080):
     """
